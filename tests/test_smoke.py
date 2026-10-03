@@ -196,3 +196,38 @@ def test_cli_idea_get(tmp_path, monkeypatch, capsys):
     assert "ID: 001" in output
     assert "Name: Test Product" in output
     assert "Status: NEW" in output
+
+
+def test_source_result():
+    from nova_scout.sources.base import SourceResult
+
+    result = SourceResult(
+        source="test",
+        source_type="mock",
+        query="example",
+        title="Example Result",
+        url="https://example.com",
+        value=42,
+    )
+
+    assert result.source == "test"
+    assert result.source_type == "mock"
+    assert result.query == "example"
+    assert result.title == "Example Result"
+    assert result.value == 42
+    assert result.metadata == {}
+
+
+def test_source_contract():
+    from nova_scout.sources.base import Source
+
+    source = Source()
+
+    assert source.name == "base"
+    assert source.source_type == "unknown"
+
+    try:
+        source.fetch("example")
+        assert False, "Expected NotImplementedError"
+    except NotImplementedError:
+        pass
