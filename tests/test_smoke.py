@@ -613,3 +613,190 @@ def test_cli_scan_creates_evidence(tmp_path, monkeypatch, capsys):
     assert evidences[0].source == "mock"
     assert evidences[0].idea_id == "001"
     assert "Invoice Generator" in evidences[0].content
+
+
+def test_opportunity_profile_model():
+    from nova_scout.opportunities.models import OpportunityProfile
+
+    profile = OpportunityProfile(
+        idea_id="001",
+        demand_signals=["Strong search interest"],
+        competition_signals=["Several existing tools"],
+        pricing_signals=["Products priced around $29/month"],
+        market_signals=["International market"],
+        confidence="MEDIUM",
+    )
+
+    assert profile.idea_id == "001"
+    assert profile.demand_signals == ["Strong search interest"]
+    assert profile.competition_signals == ["Several existing tools"]
+    assert profile.pricing_signals == ["Products priced around $29/month"]
+    assert profile.market_signals == ["International market"]
+    assert profile.confidence == "MEDIUM"
+
+
+def test_opportunity_profile_repository(tmp_path):
+    from nova_scout.opportunities.models import OpportunityProfile
+    from nova_scout.opportunities.repository import OpportunityProfileRepository
+
+    repository = OpportunityProfileRepository(
+        tmp_path / "opportunity_profiles.json"
+    )
+
+    profile = OpportunityProfile(
+        idea_id="001",
+        demand_signals=["Strong demand"],
+        competition_signals=["Moderate competition"],
+        pricing_signals=["$29/month"],
+        market_signals=["International"],
+        confidence="MEDIUM",
+    )
+
+    saved = repository.save(profile)
+
+    assert saved.idea_id == "001"
+
+    loaded = repository.get("001")
+
+    assert loaded is not None
+    assert loaded.idea_id == "001"
+    assert loaded.demand_signals == ["Strong demand"]
+    assert loaded.competition_signals == ["Moderate competition"]
+    assert loaded.pricing_signals == ["$29/month"]
+    assert loaded.market_signals == ["International"]
+    assert loaded.confidence == "MEDIUM"
+
+
+def test_opportunity_profile_repository_list(tmp_path):
+    from nova_scout.opportunities.models import OpportunityProfile
+    from nova_scout.opportunities.repository import OpportunityProfileRepository
+
+    repository = OpportunityProfileRepository(
+        tmp_path / "opportunity_profiles.json"
+    )
+
+    repository.save(
+        OpportunityProfile(
+            idea_id="001",
+            confidence="LOW",
+        )
+    )
+
+    repository.save(
+        OpportunityProfile(
+            idea_id="002",
+            confidence="HIGH",
+        )
+    )
+
+    profiles = repository.list()
+
+    assert len(profiles) == 2
+    assert profiles[0].idea_id == "001"
+    assert profiles[1].idea_id == "002"
+
+
+def test_opportunity_profile_service_builds_profile(tmp_path):
+    from nova_scout.evidence.models import Evidence
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.opportunities.repository import (
+        OpportunityProfileRepository,
+    )
+    from nova_scout.opportunities.service import OpportunityProfileService
+
+    evidence_repository = EvidenceRepository(
+        tmp_path / "evidence.json"
+    )
+
+    profile_repository = OpportunityProfileRepository(
+        tmp_path / "profiles.json"
+    )
+
+    evidence_repository.save(
+        Evidence(
+            idea_id="001",
+            source="test-demand",
+            source_type="demand",
+            title="Strong demand",
+            url="https://example.com/demand",
+            content="Many users search for invoice generators.",
+        )
+    )
+
+    evidence_repository.save(
+        Evidence(
+            idea_id="001",
+            source="test-pricing",
+            source_type="pricing",
+            title="Pricing signal",
+            url="https://example.com/pricing",
+            content="Comparable tools charge $29/month.",
+        )
+    )
+
+    service = OpportunityProfileService(
+        evidence_repository=evidence_repository,
+        profile_repository=profile_repository,
+    )
+
+    profile = service.build("001")
+
+    assert profile.idea_id == "001"
+    assert profile.demand_signals == [
+        "Many users search for invoice generators."
+    ]
+    assert profile.pricing_signals == [
+        "Comparable tools charge $29/month."
+    ]
+    assert profile.competition_signals == []
+    assert profile.market_signals == []
+    assert profile.confidence == "UNKNOWN"
+
+    saved = profile_repository.get("001")
+
+    assert saved is not None
+    assert saved.idea_id == "001"
+
+
+def test_opportunity_profile_service_ignores_unclassified_evidence(
+    tmp_path,
+):
+    from nova_scout.evidence.models import Evidence
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.opportunities.repository import (
+        OpportunityProfileRepository,
+    )
+    from nova_scout.opportunities.service import OpportunityProfileService
+
+    evidence_repository = EvidenceRepository(
+        tmp_path / "evidence.json"
+    )
+
+    profile_repository = OpportunityProfileRepository(
+        tmp_path / "profiles.json"
+    )
+
+    evidence_repository.save(
+        Evidence(
+            idea_id="001",
+            source="test",
+            source_type="mock",
+            title="Generic result",
+            url="https://example.com",
+            content="Generic evidence.",
+        )
+    )
+
+    service = OpportunityProfileService(
+        evidence_repository=evidence_repository,
+        profile_repository=profile_repository,
+    )
+
+    profile = service.build("001")
+
+    assert profile.idea_id == "001"
+    assert profile.demand_signals == []
+    assert profile.competition_signals == []
+    assert profile.pricing_signals == []
+    assert profile.market_signals == []
+    assert profile.confidence == "UNKNOWN"

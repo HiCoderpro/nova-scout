@@ -6,6 +6,8 @@ import argparse
 
 from nova_scout.ideas.repository import IdeaRepository
 from nova_scout.ideas.service import IdeaService
+from nova_scout.opportunities.repository import OpportunityProfileRepository
+from nova_scout.opportunities.service import OpportunityProfileService
 from nova_scout.evidence.repository import EvidenceRepository
 from nova_scout.research.service import ResearchService
 from nova_scout.sources.mock import MockSource
@@ -128,9 +130,17 @@ def _research_service() -> ResearchService:
     )
 
 
+def _opportunity_profile_service() -> OpportunityProfileService:
+    return OpportunityProfileService(
+        evidence_repository=EvidenceRepository(),
+        profile_repository=OpportunityProfileRepository(),
+    )
+
+
 def _handle_scan(args: argparse.Namespace) -> None:
     idea_service = _idea_service()
     research_service = _research_service()
+    profile_service = _opportunity_profile_service()
 
     idea = idea_service.get(args.idea_id)
 
@@ -145,8 +155,11 @@ def _handle_scan(args: argparse.Namespace) -> None:
         query=query,
     )
 
+    profile = profile_service.build(idea.id)
+
     print(f"Scan completed for idea {idea.id}")
     print(f"{len(evidences)} evidence collected")
+    print(f"Opportunity profile updated: {profile.idea_id}")
 
 
 def _handle_idea(args: argparse.Namespace) -> None:
