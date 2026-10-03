@@ -33,3 +33,6 @@ Thumbs.db
 data/raw/
 data/normalized/
 data/reports/
+
+# NOVA local state
+data/ideas.json
