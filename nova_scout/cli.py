@@ -6,6 +6,9 @@ import argparse
 
 from nova_scout.ideas.repository import IdeaRepository
 from nova_scout.ideas.service import IdeaService
+from nova_scout.evidence.repository import EvidenceRepository
+from nova_scout.research.service import ResearchService
+from nova_scout.sources.mock import MockSource
 
 
 VERSION = "0.1.0"
@@ -87,9 +90,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Idea ID.",
     )
 
-    subparsers.add_parser(
+    scan_parser = subparsers.add_parser(
         "scan",
         help="Scan an opportunity.",
+    )
+    scan_parser.add_argument(
+        "idea_id",
+        help="Idea ID.",
+    )
+    scan_parser.add_argument(
+        "--query",
+        default=None,
+        help="Research query. Defaults to the idea name.",
     )
 
     subparsers.add_parser(
@@ -107,6 +119,34 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _idea_service() -> IdeaService:
     return IdeaService(IdeaRepository())
+
+
+def _research_service() -> ResearchService:
+    return ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(),
+    )
+
+
+def _handle_scan(args: argparse.Namespace) -> None:
+    idea_service = _idea_service()
+    research_service = _research_service()
+
+    idea = idea_service.get(args.idea_id)
+
+    if idea is None:
+        print(f"Idea not found: {args.idea_id}")
+        return
+
+    query = args.query or idea.name
+
+    evidences = research_service.research(
+        idea_id=idea.id,
+        query=query,
+    )
+
+    print(f"Scan completed for idea {idea.id}")
+    print(f"{len(evidences)} evidence collected")
 
 
 def _handle_idea(args: argparse.Namespace) -> None:
@@ -166,6 +206,10 @@ def main() -> None:
 
     if args.command == "idea":
         _handle_idea(args)
+        return
+
+    if args.command == "scan":
+        _handle_scan(args)
         return
 
     if args.command == "status":

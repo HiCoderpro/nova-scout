@@ -37,8 +37,16 @@ def test_cli_commands():
         "compare",
     }
 
+    command_args = {
+        "status": ["status"],
+        "idea": ["idea"],
+        "scan": ["scan", "001"],
+        "report": ["report"],
+        "compare": ["compare"],
+    }
+
     for command in expected_commands:
-        args = parser.parse_args([command])
+        args = parser.parse_args(command_args[command])
         assert args.command == command
 
 
@@ -231,3 +239,377 @@ def test_source_contract():
         assert False, "Expected NotImplementedError"
     except NotImplementedError:
         pass
+
+
+def test_mock_source_returns_evidence():
+    from nova_scout.sources.mock import MockSource
+
+    source = MockSource()
+
+    results = source.search("invoice generator")
+
+    assert len(results) == 1
+    assert results[0].source == "mock"
+    assert results[0].query == "invoice generator"
+    assert results[0].title == "Mock result for invoice generator"
+    assert results[0].url == "https://example.com/mock"
+    assert "invoice generator" in results[0].content
+
+
+def test_evidence_model():
+    from nova_scout.evidence.models import Evidence
+
+    evidence = Evidence(
+        idea_id="001",
+        source="mock",
+        source_type="mock",
+        title="Example Result",
+        url="https://example.com",
+        content="Example evidence",
+        value=42,
+    )
+
+    assert evidence.id is None
+    assert evidence.idea_id == "001"
+    assert evidence.source == "mock"
+    assert evidence.source_type == "mock"
+    assert evidence.title == "Example Result"
+    assert evidence.url == "https://example.com"
+    assert evidence.content == "Example evidence"
+    assert evidence.value == 42
+    assert evidence.metadata == {}
+    assert evidence.collected_at.tzinfo is not None
+
+
+def test_evidence_repository(tmp_path):
+    from nova_scout.evidence.models import Evidence
+    from nova_scout.evidence.repository import EvidenceRepository
+
+    repository = EvidenceRepository(tmp_path / "evidence.json")
+
+    evidence = repository.save(
+        Evidence(
+            idea_id="001",
+            source="mock",
+            source_type="mock",
+            title="Example Result",
+            url="https://example.com",
+            content="Example evidence",
+            value=42,
+        )
+    )
+
+    assert evidence.id == "001"
+
+    loaded = repository.get("001")
+
+    assert loaded is not None
+    assert loaded.idea_id == "001"
+    assert loaded.title == "Example Result"
+
+    evidences = repository.list()
+
+    assert len(evidences) == 1
+
+
+def test_evidence_repository_filters_by_idea(tmp_path):
+    from nova_scout.evidence.models import Evidence
+    from nova_scout.evidence.repository import EvidenceRepository
+
+    repository = EvidenceRepository(tmp_path / "evidence.json")
+
+    repository.save(
+        Evidence(
+            idea_id="001",
+            source="mock",
+            source_type="mock",
+            title="Evidence A",
+            url="https://example.com/a",
+        )
+    )
+
+    repository.save(
+        Evidence(
+            idea_id="002",
+            source="mock",
+            source_type="mock",
+            title="Evidence B",
+            url="https://example.com/b",
+        )
+    )
+
+    evidences = repository.list(idea_id="001")
+
+    assert len(evidences) == 1
+    assert evidences[0].idea_id == "001"
+    assert evidences[0].title == "Evidence A"
+
+
+def test_research_service_collects_evidence(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    repository = EvidenceRepository(tmp_path / "evidence.json")
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=repository,
+    )
+
+    evidences = service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+    assert evidences[0].id == "001"
+    assert evidences[0].idea_id == "001"
+    assert evidences[0].source == "mock"
+    assert evidences[0].title == "Mock result for invoice generator"
+    assert "invoice generator" in evidences[0].content
+
+    stored = repository.list(idea_id="001")
+
+    assert len(stored) == 1
+    assert stored[0].id == "001"
+
+
+def test_research_service_rejects_empty_query(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    try:
+        service.research("001", "   ")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Research query cannot be empty."
+
+
+def test_research_service_rejects_empty_idea_id(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    try:
+        service.research("   ", "invoice generator")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Idea ID cannot be empty."
+
+
+def test_research_service_collects_evidence(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    repository = EvidenceRepository(tmp_path / "evidence.json")
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=repository,
+    )
+
+    evidences = service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+    assert evidences[0].id == "001"
+    assert evidences[0].idea_id == "001"
+    assert evidences[0].source == "mock"
+    assert evidences[0].title == "Mock result for invoice generator"
+    assert "invoice generator" in evidences[0].content
+
+    stored = repository.list(idea_id="001")
+
+    assert len(stored) == 1
+    assert stored[0].id == "001"
+
+
+def test_research_service_rejects_empty_query(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    try:
+        service.research("001", "   ")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Research query cannot be empty."
+
+
+def test_research_service_rejects_empty_idea_id(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    try:
+        service.research("   ", "invoice generator")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Idea ID cannot be empty."
+
+
+def test_research_service_creates_evidence(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    repository = EvidenceRepository(tmp_path / "evidence.json")
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=repository,
+    )
+
+    evidences = service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+
+    evidence = evidences[0]
+
+    assert evidence.id == "001"
+    assert evidence.idea_id == "001"
+    assert evidence.source == "mock"
+    assert evidence.source_type == "mock"
+    assert evidence.title == "Mock result for invoice generator"
+    assert evidence.value == 42
+    assert "invoice generator" in evidence.content
+
+
+def test_research_service_persists_evidence(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    path = tmp_path / "evidence.json"
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(path),
+    )
+
+    service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    repository = EvidenceRepository(path)
+
+    evidences = repository.list("001")
+
+    assert len(evidences) == 1
+    assert evidences[0].id == "001"
+    assert evidences[0].idea_id == "001"
+
+
+def test_research_service_rejects_empty_input(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    try:
+        service.research("", "invoice generator")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Idea ID cannot be empty."
+
+    try:
+        service.research("001", "   ")
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(exc) == "Research query cannot be empty."
+
+
+def test_scan_service(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.scan import ScanService
+    from nova_scout.sources.mock import MockSource
+
+    service = ScanService(
+        source=MockSource(),
+        evidence_repository=EvidenceRepository(
+            tmp_path / "evidence.json"
+        ),
+    )
+
+    evidences = service.scan(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+    assert evidences[0].idea_id == "001"
+    assert evidences[0].source == "mock"
+
+
+def test_cli_scan_creates_evidence(tmp_path, monkeypatch, capsys):
+    from nova_scout import cli
+    from nova_scout.evidence.repository import EvidenceRepository
+
+    monkeypatch.chdir(tmp_path)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["nova", "idea", "add", "Invoice Generator"],
+    )
+    cli.main()
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["nova", "scan", "001"],
+    )
+    cli.main()
+
+    output = capsys.readouterr().out
+
+    assert "Scan completed for idea 001" in output
+    assert "1 evidence collected" in output
+
+    repository = EvidenceRepository(tmp_path / "data" / "evidence.json")
+    evidences = repository.list("001")
+
+    assert len(evidences) == 1
+    assert evidences[0].source == "mock"
+    assert evidences[0].idea_id == "001"
+    assert "Invoice Generator" in evidences[0].content
