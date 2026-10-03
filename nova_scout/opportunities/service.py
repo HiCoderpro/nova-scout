@@ -26,18 +26,37 @@ class OpportunityProfileService:
         market_signals: list[str] = []
 
         for evidence in evidences:
-            classification = evidence.source_type.strip().lower()
+            classifications = evidence.metadata.get("classifications")
 
-            if classification == "demand":
+            if classifications is None:
+                classification = evidence.metadata.get("classification")
+
+                if classification:
+                    classifications = [classification]
+
+            if classifications is None:
+                source_type = evidence.source_type.strip().lower()
+
+                if source_type in {
+                    "demand",
+                    "competition",
+                    "pricing",
+                    "market",
+                }:
+                    classifications = [source_type]
+                else:
+                    classifications = []
+
+            if "demand" in classifications:
                 demand_signals.append(evidence.content)
 
-            elif classification == "competition":
+            if "competition" in classifications:
                 competition_signals.append(evidence.content)
 
-            elif classification == "pricing":
+            if "pricing" in classifications:
                 pricing_signals.append(evidence.content)
 
-            elif classification == "market":
+            if "market" in classifications:
                 market_signals.append(evidence.content)
 
         profile = OpportunityProfile(

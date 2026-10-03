@@ -800,3 +800,344 @@ def test_opportunity_profile_service_ignores_unclassified_evidence(
     assert profile.pricing_signals == []
     assert profile.market_signals == []
     assert profile.confidence == "UNKNOWN"
+
+
+def test_evidence_classifier_classifies_by_source_type():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="demand",
+        title="Demand signal",
+        url="https://example.com",
+        content="Users are actively searching for this solution.",
+    )
+
+    classified = classifier.classify(evidence)
+
+    assert classified.metadata["classification"] == "demand"
+
+
+def test_evidence_classifier_classifies_all_supported_types():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    expected = {
+        "demand": "demand",
+        "competition": "competition",
+        "pricing": "pricing",
+        "market": "market",
+    }
+
+    for source_type, classification in expected.items():
+        evidence = Evidence(
+            idea_id="001",
+            source="test",
+            source_type=source_type,
+            title="Test evidence",
+            url="https://example.com",
+            content="Test content.",
+        )
+
+        result = classifier.classify(evidence)
+
+        assert result.metadata["classification"] == classification
+
+
+def test_evidence_classifier_unknown_type():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="something_unknown",
+        title="Unknown evidence",
+        url="https://example.com",
+        content="Test content.",
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classification"] == "unknown"
+
+
+def test_evidence_classifier_uses_content_when_source_type_is_unknown():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="unknown",
+        title="Search demand",
+        url="https://example.com",
+        content=(
+            "Thousands of users search for invoice generators "
+            "every month."
+        ),
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classification"] == "demand"
+
+
+def test_evidence_classifier_detects_competition_from_content():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="unknown",
+        title="Competitive landscape",
+        url="https://example.com",
+        content="Several competitors already offer similar products.",
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classification"] == "competition"
+
+
+def test_evidence_classifier_detects_pricing_from_content():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="unknown",
+        title="Pricing",
+        url="https://example.com",
+        content="Comparable products charge $29 per month.",
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classification"] == "pricing"
+
+
+def test_evidence_classifier_detects_market_from_content():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="unknown",
+        title="Market",
+        url="https://example.com",
+        content="The global market is growing rapidly across multiple countries.",
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classification"] == "market"
+
+
+def test_evidence_classifier_detects_multiple_categories():
+    from nova_scout.evidence.classifier import EvidenceClassifier
+    from nova_scout.evidence.models import Evidence
+
+    classifier = EvidenceClassifier()
+
+    evidence = Evidence(
+        idea_id="001",
+        source="test",
+        source_type="unknown",
+        title="Competitive pricing and demand",
+        url="https://example.com",
+        content=(
+            "Customers are searching for alternatives. "
+            "Several competitors charge $29 per month."
+        ),
+    )
+
+    result = classifier.classify(evidence)
+
+    assert result.metadata["classifications"] == [
+        "demand",
+        "competition",
+        "pricing",
+    ]
+
+
+def test_opportunity_profile_service_uses_multiple_classifications(
+    tmp_path,
+):
+    from nova_scout.evidence.models import Evidence
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.opportunities.repository import (
+        OpportunityProfileRepository,
+    )
+    from nova_scout.opportunities.service import OpportunityProfileService
+
+    evidence_repository = EvidenceRepository(
+        tmp_path / "evidence.json"
+    )
+
+    profile_repository = OpportunityProfileRepository(
+        tmp_path / "profiles.json"
+    )
+
+    evidence_repository.save(
+        Evidence(
+            idea_id="001",
+            source="test",
+            source_type="unknown",
+            title="Multi signal",
+            url="https://example.com",
+            content="Strong opportunity signal.",
+            metadata={
+                "classification": "demand",
+                "classifications": [
+                    "demand",
+                    "competition",
+                    "pricing",
+                ],
+            },
+        )
+    )
+
+    service = OpportunityProfileService(
+        evidence_repository=evidence_repository,
+        profile_repository=profile_repository,
+    )
+
+    profile = service.build("001")
+
+    assert profile.demand_signals == [
+        "Strong opportunity signal."
+    ]
+    assert profile.competition_signals == [
+        "Strong opportunity signal."
+    ]
+    assert profile.pricing_signals == [
+        "Strong opportunity signal."
+    ]
+
+
+def test_research_service_classifies_evidence(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.mock import MockSource
+
+    repository = EvidenceRepository(
+        tmp_path / "evidence.json"
+    )
+
+    service = ResearchService(
+        source=MockSource(),
+        evidence_repository=repository,
+    )
+
+    evidences = service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+    assert evidences[0].metadata["classification"] == "unknown"
+    assert evidences[0].metadata["classifications"] == ["unknown"]
+
+
+def test_phase2_scan_to_opportunity_profile(tmp_path):
+    from nova_scout.evidence.repository import EvidenceRepository
+    from nova_scout.opportunities.repository import (
+        OpportunityProfileRepository,
+    )
+    from nova_scout.opportunities.service import OpportunityProfileService
+    from nova_scout.research.service import ResearchService
+    from nova_scout.sources.base import Source, SourceResult
+
+
+    class Phase2Source(Source):
+        name = "phase2"
+        source_type = "unknown"
+
+        def fetch(self, query):
+            return [
+                SourceResult(
+                    source=self.name,
+                    source_type=self.source_type,
+                    query=query,
+                    title="Invoice Generator Signals",
+                    url="https://example.com/invoice",
+                    value=None,
+                    content=(
+                        "Thousands of users search for invoice generators. "
+                        "Several competitors offer similar products. "
+                        "Comparable products charge $29 per month."
+                    ),
+                )
+            ]
+
+
+    evidence_repository = EvidenceRepository(
+        tmp_path / "evidence.json"
+    )
+
+    profile_repository = OpportunityProfileRepository(
+        tmp_path / "profiles.json"
+    )
+
+    research_service = ResearchService(
+        source=Phase2Source(),
+        evidence_repository=evidence_repository,
+    )
+
+    evidences = research_service.research(
+        idea_id="001",
+        query="invoice generator",
+    )
+
+    assert len(evidences) == 1
+
+    evidence = evidences[0]
+
+    assert evidence.metadata["classifications"] == [
+        "demand",
+        "competition",
+        "pricing",
+    ]
+
+    profile_service = OpportunityProfileService(
+        evidence_repository=evidence_repository,
+        profile_repository=profile_repository,
+    )
+
+    profile = profile_service.build("001")
+
+    assert profile.idea_id == "001"
+
+    assert profile.demand_signals == [
+        evidence.content
+    ]
+
+    assert profile.competition_signals == [
+        evidence.content
+    ]
+
+    assert profile.pricing_signals == [
+        evidence.content
+    ]
+
+    assert profile.market_signals == []

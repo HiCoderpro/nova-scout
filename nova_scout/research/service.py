@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from nova_scout.evidence.classifier import EvidenceClassifier
 from nova_scout.evidence.models import Evidence
 from nova_scout.evidence.repository import EvidenceRepository
 from nova_scout.sources.base import Source
@@ -10,9 +11,11 @@ class ResearchService:
         self,
         source: Source,
         evidence_repository: EvidenceRepository,
+        classifier: EvidenceClassifier | None = None,
     ):
         self.source = source
         self.evidence_repository = evidence_repository
+        self.classifier = classifier or EvidenceClassifier()
 
     def research(
         self,
@@ -40,8 +43,10 @@ class ResearchService:
                 url=result.url,
                 content=result.content,
                 value=result.value,
-                metadata=result.metadata,
+                metadata=result.metadata.copy(),
             )
+
+            evidence = self.classifier.classify(evidence)
 
             evidences.append(
                 self.evidence_repository.save(evidence)
